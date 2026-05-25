@@ -7,6 +7,7 @@ __pycache__/
 *.safetensors
 *.npy
 *.npz
+.DS_Store
 output/
 outputs/
 results/
@@ -15,3 +16,6 @@ rl_output/
 rl_output_*/
 complete_results_20260415/
 .cache/
+data/Amazon/
+models/MiniOneRec/Amazon/
+models/MiniOneRec/assets/
