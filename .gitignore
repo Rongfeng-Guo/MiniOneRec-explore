@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pt
+*.bin
+*.ckpt
+*.safetensors
+*.npy
+*.npz
+output/
+outputs/
+results/
+experiments/
+rl_output/
+rl_output_*/
+complete_results_20260415/
+.cache/
