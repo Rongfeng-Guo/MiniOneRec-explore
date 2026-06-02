@@ -14,6 +14,7 @@ results/
 experiments/
 rl_output/
 rl_output_*/
+temp/
 complete_results_20260415/
 .cache/
 data/Amazon/

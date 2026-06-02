@@ -1,9 +1,10 @@
-# MiniOneRec Prefix and Multihead Variants
+# MiniOneRec Prefix, Multihead, and Consistency Variants
 
-This repository is a cleaned research-code release for two MiniOneRec-based experimental branches that were developed to test whether stronger structure on SID prediction can improve generative recommendation:
+This repository is a cleaned research-code release for three MiniOneRec-based experimental branches that were developed to test whether stronger structure on SID prediction can improve generative recommendation:
 
 - `prefix/`: a prefix-oriented branch
 - `multihead/`: a multi-head branch with hierarchical auxiliary supervision
+- `consistency/`: a multi-view consistency branch that aligns SID-view and title-view SFT
 
 Unlike a generic code dump, this repository is meant to document the actual research path: what we changed, why we changed it, what phenomena we observed, and why the current variants did not yet produce a stable win over the strongest local baseline.
 
@@ -14,7 +15,7 @@ MiniOneRec maps each item into a 3-level SID and trains a generative recommender
 1. Can we make the model use the hierarchical structure inside the SID more explicitly?
 2. Can coarse-to-fine supervision improve recommendation quality instead of only predicting the final exact SID token sequence?
 
-The two branches in this repository were created to explore those questions from different angles.
+The three branches in this repository were created to explore those questions from different angles.
 
 ## What We Tried
 
@@ -41,6 +42,21 @@ In code terms, the important changes are concentrated in:
 The `prefix/` branch explores reward shaping and prefix-aware structure during RL. It contains several experiments around hierarchical and ranking-style rewards, including more aggressive variants that try to give partial credit when the predicted SID matches the target only at coarse levels.
 
 In practice, this branch is where we tested whether a better reward design can translate coarse SID-level correctness into better exact next-item recommendation.
+
+### `consistency/`
+
+The `consistency/` branch explores a paired multi-view SFT setup. For each training row it constructs:
+
+- `SID history -> next SID`
+- `title history -> next SID`
+
+The branch then trains both views jointly and adds consistency constraints between their prediction distributions and anchor representations.
+
+In code terms, the most important additions are concentrated in:
+
+- `consistency/sft_mv.py`
+- `consistency/paired_mv_dataset.py`
+- `consistency/mv_consistency_trainer.py`
 
 ## Main Observation
 
@@ -153,6 +169,14 @@ Excluded:
 
 ```text
 .
+├── consistency/
+│   ├── README.md
+│   ├── sft_mv.py
+│   ├── paired_mv_dataset.py
+│   ├── mv_consistency_trainer.py
+│   ├── data/
+│   ├── rq/
+│   └── ...
 ├── prefix/
 │   ├── README.md
 │   ├── compare.md
@@ -178,9 +202,11 @@ If you want the fastest route to understanding the work, read in this order:
 1. this root `README.md`
 2. `multihead/compare.md`
 3. `prefix/compare.md`
-4. `multihead/sft.py`
-5. `multihead/rl.py`
-6. `prefix/rl.py`
+4. `consistency/sft_mv.py`
+5. `consistency/paired_mv_dataset.py`
+6. `multihead/sft.py`
+7. `multihead/rl.py`
+8. `prefix/rl.py`
 
 ## Recommended Next Steps
 
@@ -203,6 +229,8 @@ conda activate minionerec
 pip install -r prefix/requirements.txt
 # or
 pip install -r multihead/requirements.txt
+# or
+pip install -r consistency/requirements.txt
 
 # prepare data and SID indices
 # see convert_dataset.py, data/, and rq/
@@ -213,6 +241,8 @@ bash multihead/evaluate.sh
 ```
 
 Use the corresponding scripts under `prefix/` if you are reproducing the prefix-oriented branch.
+
+For the multi-view consistency experiments, the main entry point is `consistency/sft_mv.py`, together with `consistency/paired_mv_dataset.py` and `consistency/mv_consistency_trainer.py`.
 
 ## License
 
