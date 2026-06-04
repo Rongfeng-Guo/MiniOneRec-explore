@@ -1,350 +1,85 @@
-<div align="center">
+# Prefix 分支说明
 
+`prefix/` 是 `MiniOneRec-explore` 中面向奖励设计的一条实验分支，重点研究如何在 RL 阶段利用 SID 的前缀层级结构，提升生成式推荐的最终效果。
 
-<img src="./assets/logo.png" width="500em" ></img> 
+## 分支目标
 
-**An Open-Source Framework for
-Scaling Generative Recommendation**
+这一分支尝试回答的问题是：
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
-![License](https://img.shields.io/badge/License-Apache--2.0-green.svg)
-<a href="https://arxiv.org/abs/2510.24431"><img src="https://img.shields.io/static/v1?label=arXiv&message=Paper&color=red"></a>
+如果模型生成的 SID 在粗粒度层级上已经更接近目标，能否通过 reward shaping 把这种结构优势进一步转化为更好的最终推荐结果？
 
-<a href="https://arxiv.org/abs/2510.24431">📄 Technical Report</a> | <a href="https://huggingface.co/kkknight/MiniOneRec">🤗 Huggingface</a> | <a href="https://modelscope.cn/models/k925238839/MiniOneRec">🤖  Modelscope</a>
-</div>
+因此，`prefix/` 的重点不在于改写基础 SFT 架构，而在于重新设计 RL 阶段的奖励信号。
 
-**MiniOneRec** is the first fully open-source **generative recommendation** framework, which provides an end-to-end workflow spanning **SID construction**, **supervised fine-tuning (SFT)**, and recommendation-oriented **reinforcement learning (RL)**. 
+## 主要方法
 
----
+该分支围绕以下方向开展实验：
 
-## Local Supplement
+- 为 SID 的层级前缀匹配提供 partial credit
+- 引入 hierarchical reward，显式区分粗层级与细层级命中
+- 设计 ranking-style reward，对高概率但错误的候选施加更明确惩罚
+- 比较不同 reward 组合在离线 Top-K 指标上的真实收益
 
-For this local branch, two extra notes are maintained in the repo root:
+这一路线的核心假设是：粗粒度正确往往比完全精确命中更容易学习，而合理利用这类中间信号，也许能帮助模型更稳定地靠近正确 item。
 
-- `README_improvements.md`: a Chinese write-up comparing `/root/MiniOneRec-prefix` with `/root/MiniOneRec-main`, summarizing data statistics, SID/RQ-VAE design, SFT/RL flow, and likely implementation issues behind the current gap to the baseline.
-- `compare.md`: a consolidated experiment ledger covering finished offline results, training-only runs, and interrupted ablations in this workspace.
+## 关键文件
 
----
+- `rl.py`：主要的 reward 设计与 RL 训练逻辑
+- `sft.py`：该分支使用的 SFT 训练入口
+- `evaluate.py`：离线评测逻辑
+- `convert_dataset.py`：数据格式转换
+- `compare.md`：实验对比、运行记录和问题整理
 
-## 📢 Announcement
+## 实验链路
 
-- 2026-01-04 — Regarding the potential discrepancies between the reproduced results based on the Instruct model and our reported metrics, please check whether the CC metric in the evaluation log is non-zero (refer to calc.py). If it is non-zero, it indicates that the model is still generating a large number of invalid items, and constrained decoding has not been successful. We suspect this issue may be related to the versions of dependencies such as the transformer library, and we are still investigating the cause to provide a universal solution. In the meantime, you may switch the Instruct model to a base model, such as Qwen2.5-base, to avoid this problem.
+`prefix/` 的完整流程与 MiniOneRec 主线保持一致：
 
-- 2025-12-04 — We update new scripts to support processing the Amazon23 dataset.
+1. 数据预处理
+2. 文本编码为 item embedding
+3. 构建 SID
+4. 转换为 SFT / RL 所需格式
+5. 进行 SFT
+6. 使用 prefix-aware reward 进行 RL
+7. 通过 constrained decoding 做离线评测
 
-- 2025-12-01 — We fix a bug in data.py that could cause the SID–item alignment task to see the answers in advance. This was because we had previously attempted to use partial trajectories to guide the full SID–item generation and does not affect the model performance.
+常用脚本包括：
 
-- 2025-11-20 — The SID construction method in **RQ-Kmeans+** has been updated (first proposed in **GPR** and this is the first open-source reproduction).
+- `sft.sh`
+- `rl.sh`
+- `evaluate.sh`
 
-- 2025-11-19 — We implemented a multi-GPU parallel text-to-embedding method based on Accelerate, which is significantly more efficient than the original version: rq/text2emb/amazon_text2emb.py
+## 当前观察
 
-- 2025-11-19 — The SID construction method in **constrained-RQ-Kmeans** has been updated.
+从现有实验现象来看，`prefix/` 暴露出一个重要特征：
 
-- 2025-11-07 — Thank you for submitting issues! Based on your feedback, we have released a new implementation. If you encounter any problems while running the code, please update to and consult the **latest version** first.
-  
-- 2025-11-07 — You can now choose to freeze the LLM parameters during the SFT stage and train only the embeddings for the newly added SID vocabulary.
+训练阶段 reward、KL 或过程指标的改善，并不意味着最终离线 Top-K 指标一定改善。
 
-- 2025-10-31 — You can now directly download the implementation **checkpoints** of our MiniOnRec model.
+这说明 prefix-aware reward 更容易提升“预测结果在结构上更接近目标”这一性质，但这种结构接近性不会自动转化为正确 item 在最终候选中的更高排名。
 
-- 2025-10-31 — The SID construction method in **RQ-Kmeans** has been updated.
+## 结果解读建议
 
----
+阅读 `prefix/` 的实验结果时，建议始终区分以下两类结论：
 
-## 🛠️ Key Techniques 
-<div align="center">
-<img src="./assets/minionerec_framework.png" width=100% ></img> 
-</div>
+- 训练过程是否更稳定
+- 最终推荐质量是否真的提升
 
-- **SID Construction: MiniOneRec begins by transforming every product into a compact, semantically meaningful token.** It concatenates an item’s title and description, feeds this sentence through a frozen text encoder, and then quantises the resulting embedding with a three-level RQ-VAE.
+前者不能直接推出后者。这也是这一分支最需要谨慎解释的地方。
 
-- **SFT: With all items rewritten as SIDs, the model is first trained in a supervised fashion.** It views the chronologically ordered user history as a token sequence and learns, via next-token prediction, to generate the SID of the next product the user is likely to consume. Crucially, this stage is co-trained with a set of language-alignment objectives that map back and forth between natural language and SID space, allowing the recommender to inherit the world knowledge embedded in large language models while grounding that knowledge in discrete item codes.
+## 后续改进建议
 
-- **Recommendation-Oriented RL: After SFT, MiniOneRec is further polished with a recommendation-oriented RL phase based on GRPO.** Multiple candidate recommendations are generated for each prompt, their rewards are normalised within the group to stabilise gradients, and a KL penalty keeps the updated policy close to its reference. Because the action space is a closed list of item SIDs, the system switches to constrained beam search, which guarantees that every beam is unique and valid, greatly improving sampling efficiency and diversity. The reward signal itself blends a binary correctness term with a rank-aware component that penalises high-probability yet incorrect items more heavily, and can be augmented with collaborative-filtering scores. Together, this pipeline enables MiniOneRec to couple dense linguistic knowledge, achieving a high-performance, lightweight generative recommendation system.
+如果继续推进 `prefix/`，建议优先关注：
 
----
+1. 对所有 reward 变体使用统一的离线 Top-K 评测协议
+2. 分离分析 coarse prefix 命中率与 exact item 命中率
+3. 将关键 reward 参数显式写入脚本与实验记录
+4. 在解释 reward 差异前，先确认 constrained decoding 工作正常
 
-## 📊 Evaluation
-
-<div align="center">
-<img src="./assets/minionerec_main_result.png" width=100% ></img> 
-</div>
-
----
-
-## 🗂️ Repository Overview
-
-| File / Directory          | Description                                                                                                   |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `sft.sh`                  | Shell script to start the Supervised Fine-Tuning (SFT) stage                                           |
-| `sft.py`                  | Python implementation of the SFT training loop                                                            |
-| `sft_gpr.py`              | GPR-inspired SFT with Value-Aware Fine-Tuning (VAFT): implements weighted loss based on simulated item value                            |
-| `rl.sh`                   | Shell script to start the Reinforcement Learning (RL) stage                             |
-| `rl.py`                   | Python implementation of the RL training loop                                              |
-| `rl_gpr.py`               | GPR-inspired RL with Hierarchy Enhanced Policy Optimization (HEPO)                                                 |
-| `minionerec_trainer.py`   | MiniOneRec trainer — GRPO-based trainer specialized for generative recommendation                              |
-| `configs/`                | YAML configuration files                                            |
-| `evaluate.sh`     | One-click offline Top-K evaluation script                                                        |
-| `evaluate.py`     | Evaluation utilities for computing HR@K and NDCG@K.                                                           |
-| `LogitProcessor.py`                | Logit processor for constrained decoding (Python implementation)                                         |
-| `data.py`                | Data pipeline for SFT and RL training                          |
-| `convert_dataset.py`                | Converts an RQ-trained dataset to the SFT-then-RL format                                            |
-| `convert_dataset_gpr.py`           | GPR-inspired dataset converter: injects simulated heterogeneous tokens (U/E/I/O) to emulate unified input representation                                         |
-| `data/amazon18_data_process.sh`                |    Shell script to filter and preprocess Amazon18 data into an RQ-ready format                                      |
-| `data/amazon18_data_process.py`                |   Python implementation of the Amazon18 data preprocessing pipeline                                        |
-| `data/amazon18_data_process_gpr.py`            |   GPR-inspired Amazon18 preprocessing: extracts heterogeneous features for unified input representation                         |
-| `data/amazon23_data_process.sh`                |    Shell script to filter and preprocess Amazon23 data into an RQ-ready format                                      |
-| `data/amazon23_data_process.py`                |   Python implementation of the Amazon23 data preprocessing pipeline                                        |
-| `rq/text2emb/amazon_text2emb.sh`                |   Shell script to generate item embeddings (title + description) via emb_model for the Amazon dataset                                   |
-| `rq/text2emb/amazon_text2emb.py`                |   Python implementation of the above embedding generation                                         |
-| `rq/text2emb/amazon_text2emb_gpr.py`           |   GPR-inspired text-to-embedding                                 |
-| `rq/generate_indices.py`                |   Generates the SID file after training an RQ-VAE model                                       |
-| `rq/rqvae.sh`                |   Shell script to train RQ-VAE on Amazon item embeddings                        |
-| `rq/rqvae.py`                |   Python implementation of RQ-VAE training                                            |
-| `rq/rqkmeans_faiss.py`                |   Python implementation of RQ-Kmeans training based on faiss                                          |
-| `rq/rqkmeans_constrained.py`                |   Python implementation of Constrained RQ-Kmeans                         |
-| `rq/rqkmeans_constrained.sh`                |   Shell script to train constrained RQ-Kmeans constrained on Amazon item embeddings                        |
-| `rq/rqkmeans_plus.py`                |   Python implementation of RQ-Kmeans+                        |
-| `rq/rqkmeans_plus.sh`                |   Shell script to train RQ-Kmeans+ constrained on Amazon item embeddings                        |
-| `rq/generate_indices_plus.py`                |   Generates the SID file after training an RQ-Kmeans+ model                                       |
-| `rq/generate_indices_plus.sh`                |   Shell script to generate the SID file after training an RQ-Kmeans+ model                                       |
-| `requirements.txt`        | List of Python dependencies                                                                                |
-
----
-
-## 🚀 Quickstart
-
-Use the pre-trained Industrial/Office SIDs we provide for a quick start!
-Reproduction can be achieved with just 4–8 A100/H100 GPUs.
-
-### 1. Create an isolated Python environment
-
-```bash
-conda create -n MiniOneRec python=3.11 -y
-conda activate MiniOneRec
-```
-
-### 2. Install required packages
+## 运行说明
 
 ```bash
 pip install -r requirements.txt
-```
-
-### 3. SFT
-
-```bash
 bash sft.sh
-```
-
-### 4. Recommendation-Oriented RL
-
-```bash
 bash rl.sh
-```
-
-### 5. Run the evaluation bash
-
-```bash
 bash evaluate.sh
 ```
 
----
-
-## 📜 Full Pipeline Walk-through
-
-### 0. Prerequisites
-- GPUs: <e.g., 4–8 × A100/H100 80 GB or comparable>
-- Python: 3.11
-
-### 1. Environment Setup
-- **1.1 Clone the repo**
-```
-git clone https://github.com/AkaliKong/MiniOneRec.git
-cd MiniOneRec
-```
-- **1.2 Create and activate a conda env**
-```
-conda create -n MiniOneRec python=3.11 -y
-conda activate MiniOneRec
-```
-- **1.3 Install dependencies**
-```
-pip install -r requirements.txt
-```
-
-### 2. Data Preparation
-
-- **2.1 Download the raw dataset (Optional)**  
-  Get it from the official page:
-  [Amazon Reviews 2023](https://amazon-reviews-2023.github.io/), 
-  [Amazon Reviews 2018](https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/), 
-  [Amazon Reviews 2014](https://cseweb.ucsd.edu/~jmcauley/datasets/amazon/links.html).
-  Note: The Industrial and Office datasets are included in Amazon 2018; the Amazon 2014 and 2023 versions require slight modifications to our data/amazon18_data_process.py.
-- **2.2 Filter and preprocess**
-```
-bash data/amazon18_data_process.sh \
-     --dataset  your_dataset_type \ # e.g. Industrial
-     --user_k 5 \
-     --item_k 5 \
-     --st_year 2017 \
-     --st_month 10 \
-     --ed_year 2018 \
-     --ed_month 11 \
-     --output_path ./data/Amazon18
-```
-- **2.3 Encode item text to embeddings**
-```
-bash rq/amazon_text2emb.sh \
-     --dataset your_dataset_type \ # e.g., Industrial 
-     --root your_processed_dataset_path \
-     --plm_name qwen \
-     --plm_checkpoint your_emb_model_path
-```
-
-### 3. SID Construction
-
-Choose either 3.1.1, 3.1.2, 3.1.3 or 3.1.4.
-
-- **3.1.1 Train RQ-VAE on the embeddings**
-```
-bash rq/rqvae.sh \
-      --data_path xxx/data/Industrial_and_Scientific/Industrial_and_Scientific.emb-qwen-td.npy \
-      --ckpt_dir ./output/Industrial_and_Scientific \
-      --lr 1e-3 \
-      --epochs 10000 \
-      --batch_size 20480
-```
-
-- **3.1.2 Train RQ-Kmeans on the embeddings**
-
-```
-conda install faiss-gpu
-python rqkmeans_faiss.py --dataset Industrial_and_Scientific # The RQ-Kmeans method based on semantic embeddings has a relatively high collision rate.
-```
-
-- **3.1.3 Train constrained RQ-Kmeans on the embeddings**
-For conflicting items, we add an extra layer to perform deduplication; meanwhile, we use a balanced constraint to ensure that the SIDs are evenly distributed.
-```
-pip install k_means_constrained
-pip install polars
-bash rqkmeans_constrained.sh
-```
-
-- **3.1.4 Train RQ-Kmeans+ on the embeddings**
-```
-pip install k_means_constrained
-pip install polars
-bash rqkmeans_constrained.sh
-bash rqkmeans_plus.sh
-```
-
-- **3.2 Generate indices(only RQ-VAE & RQ-Kmeans+ needed)**
-```
-python rq/generate_indices.py
-# or
-bash rq/generate_indices_plus.sh
-```
-
-- **3.3 Convert dataset format**
-```
-python convert_dataset.py \
-     --dataset_name Industrial_and_Scientific \
-     --data_dir /path/to/Industrial_and_Scientific \
-     --output_dir /path/to/ourput_dir \
-
-```
-
-### 4. SFT
-
-```
-bash sft.sh \
-     --base_model your_model_path \
-     --output_dir your_ourput_dir \
-     --sid_index_path your_.index.json_path \
-     --item_meta_path your_.item.json_path
-```
-
-### 5. Recommendation-Oriented RL
-> (Optional) For production-scale datasets, considering the cost of reinforcement learning and diminishing marginal returns, you can perform the RL stage using only a relatively small subset on the order of tens of thousands of samples.
-```
-bash rl.sh \
-     --model_path your_model_path \
-     --output_dir output_dir \
-```
-
-### 6. Offline Evaluation
-
-```
-bash evaluate.sh \
-     --exp_name your_model_path 
-```
-
----
-
-## 📝 Upcoming Features
-
-We are actively extending MiniOneRec’s capabilities. The following enhancements are already on our roadmap:
-* ⏱️ **More SID Construction Algorithms**: forthcoming support for R-VQ, RQ-Kmeans, RQ-OPQ, and RQ-VAE-v2 (PLUM).
-* ⚙️ **MiniOneRec-Think**: a module that seamlessly integrates dialogue, reasoning, and personalized recommendation, providing an all-in-one solution for complex interactive scenarios.
-* 🔍 **Broader Dataset Support**: additional popular public datasets, including Yelp, to further validate the generality of our algorithms.
-
----
-
-## 🏫 Institutions  <!-- omit in toc -->
-
-This project is developed by the following institutions:
-
-- <img src="assets/lds.png" width="28px"> [LDS](https://data-science.ustc.edu.cn/_upload/tpl/15/04/5380/template5380/index.html)
-- <img src="assets/alphalab.jpg" width="28px"> [AlphaLab](https://alphalab-ustc.github.io/index.html)
-- <img src="assets/next.jpg" width="28px"> [NExT](https://www.nextcenter.org/)
- 
----
-
-## 🧩 Contributing
-
-We welcome and appreciate all contributions! If you have ideas to improve MiniOneRec, please feel free to submit a pull request (PR).
-
----
-## 🙏 Acknowledgements
-
-This repository reuses or adapts portions of code from the following open-source projects. We gratefully acknowledge their authors and contributors:
-
-- [ReRe](https://github.com/sober-clever/ReRe)
-- [LC-Rec](https://github.com/zhengbw0324/LC-Rec)
-
----
-
-## 🔖 Citation <!-- omit in toc -->
-
-If you find our code/paper/model helpful, please consider citing our papers 📝 and staring us ⭐️！
-
-```bib
-@misc{MiniOneRec,
-      title={MiniOneRec: An Open-Source Framework for Scaling Generative Recommendation}, 
-      author={Xiaoyu Kong and Leheng Sheng and Junfei Tan and Yuxin Chen and Jiancan Wu and An Zhang and Xiang Wang and Xiangnan He},
-      year={2025},
-      eprint={2510.24431},
-      archivePrefix={arXiv},
-      primaryClass={cs.IR},
-}
-
-@article{ReRe,
-      title={Reinforced Preference Optimization for Recommendation}, 
-      author={Junfei Tan and Yuxin Chen and An Zhang and Junguang Jiang and Bin Liu and Ziru Xu and Han Zhu and Jian Xu and Bo Zheng and Xiang Wang},
-      journal={arXiv preprint arXiv:2510.12211},
-      year={2025},
-}
-
-@inproceedings{RecZero,
-      title={Think before Recommendation: Autonomous Reasoning-enhanced Recommender}, 
-      author={Xiaoyu Kong and Junguang Jiang and Bin Liu and Ziru Xu and Han Zhu and Jian Xu and Bo Zheng and Jiancan Wu and Xiang Wang},
-      year={2025},
-      booktitle={NeurIPS},
-}
-
-```
-
----
-
-<div align="center">
-We welcome contributions from the community! 🤝
-</div>
+如果目标是快速理解这一分支，建议优先阅读 `compare.md` 和 `rl.py`。

@@ -1,226 +1,95 @@
-# MiniOneRec Fork README
+# Multihead 分支说明
 
-这个 README 不再重复上游仓库的宣传材料，而是专门说明你当前 3 个目录之间的关系、改动点、数据流和现有结果：
+`multihead/` 是 `MiniOneRec-explore` 中面向层级辅助监督的一条实验分支，重点研究如何在 next-SID 生成任务之外，显式强化模型对 3 层 SID 结构的建模能力。
 
-- `/root/MiniOneRec-main`
-- `/root/MiniOneRec-multihead`
-- `/root/MiniOneRec-consistency`
+## 分支目标
 
-更详细的结果整理、运行痕迹和问题诊断在 [compare.md](./compare.md)。
+这一分支尝试回答的问题是：
 
-## 1. 三个目录分别是什么
+如果把目标 SID 拆成 level-0、level-1、level-2 三层标签，并在 SFT 阶段同时优化这些层级预测任务，能否提升模型对层级结构的利用效率，并进一步改善最终推荐结果？
 
-| 目录 | 定位 | 当前重点 |
-| --- | --- | --- |
-| `MiniOneRec-main` | 原始基线实现 | 原版多任务 SFT + 原版 RL |
-| `MiniOneRec-multihead` | 你的多头 / 分层辅助监督分支 | 在单任务 SID SFT 上增加 3 个 level head，再接 RL |
-| `MiniOneRec-consistency` | 你的多视角一致性分支 | 构造 SID 视角和 title 视角的 paired dataset，做一致性 SFT |
+## 主要方法
 
-当前最重要的结论是：
+`multihead/` 的基本做法是：
 
-- `multihead` 不是“原版 SFT + 多头”，而是“缩窄后的单任务 SFT + 多头”。
-- `consistency` 不是“原版多任务 SFT + 一致性”，而是“paired two-view SFT + 一致性”。
+1. 保留原有 next-SID 自回归生成任务
+2. 将目标 SID 拆分为 3 层监督标签
+3. 在 SFT 阶段增加 3 个 level classification head
+4. 在该 SFT checkpoint 基础上继续进行 RL 训练
 
-所以这两个分支和 `main` 的差异，不只是加了新 loss，而是连 base 训练目标都变了。
-
-## 2. 相对 `MiniOneRec-main` 的核心改动
-
-### 2.1 `multihead`
-
-关键文件：
+相关关键文件包括：
 
 - `data.py`
-  - 新增 SID 拆分函数
-  - 为 `SidSFTDataset` 生成 `target_sid_l0/l1/l2` 和 `level_pos`
 - `sft.py`
-  - 新增 `LevelAwareCausalLMWrapper`
-  - 新增 `LevelAwareTrainer`
-  - 在 AR loss 外增加 3 个 level CE loss
-- `rl.py`
-  - 增加 hierarchical reward
-  - 增加配置检查、实验配置落盘、异常时应急保存
-- `minionerec_trainer.py`
-  - 给 `max_prompt_length` 加默认值
-  - test 阶段单独构建 constrained logits processor
-
-真正影响实验结论的关键点只有两个：
-
-1. `sft.py` 不再混合 `SidItemFeatDataset` 和 `FusionSeqRecDataset`。
-2. 3 个 level head 共用同一个 prompt 边界 hidden state。
-
-### 2.2 `consistency`
-
-关键新增文件：
-
-- `paired_mv_dataset.py`
-- `mv_consistency_trainer.py`
-- `sft_mv.py`
-
-这条分支的核心是：
-
-1. 用同一条样本构造两个视角：
-   - `SID history -> next SID`
-   - `title history -> next SID`
-2. 分别做前向传播
-3. 用 CE + JS consistency + repr consistency 联合训练
-
-需要注意的是：
-
-- `consistency/sft.py` 基本保留了原版 `main/sft.py`
-- 真正的新路线在 `sft_mv.py`
-
-## 3. 整个模型的数据流
-
-从原始数据到最终评测，完整链路如下。
-
-### 3.1 数据预处理
-
-入口：
-
-- `data/amazon18_data_process.py`
-
-作用：
-
-- 清洗 review / metadata
-- 做 k-core 过滤
-- 按时间排序
-- 切成 `train / valid / test`
-
-### 3.2 文本编码
-
-入口：
-
-- `rq/text2emb/amazon_text2emb.py`
-
-作用：
-
-- 用冻结文本编码器把 item 文本变成连续 embedding
-
-### 3.3 SID 构建
-
-入口：
-
-- `rq/rqvae.py`
-- `rq/models/rqvae.py`
-- `rq/models/rq.py`
-- `rq/generate_indices.py`
-
-作用：
-
-- 用三层 residual quantization 把 embedding 量化成 SID
-- 生成 `<a_*><b_*><c_*>` 格式的离散 token 序列
-
-### 3.4 训练集转换
-
-入口：
-
-- `convert_dataset.py`
-
-作用：
-
-- 把 `item_id`、`item_sid`、历史 title、历史 SID 一起写进 SFT / RL 用的 CSV
-
-### 3.5 原版 SFT
-
-入口：
-
-- `MiniOneRec-main/sft.py`
-
-原版混合了 3 类任务：
-
-- `SidSFTDataset`
-- `SidItemFeatDataset`
-- `FusionSeqRecDataset`
-
-### 3.6 `multihead` SFT
-
-入口：
-
-- `MiniOneRec-multihead/sft.py`
-
-当前流程是：
-
-1. 只训练 `SidSFTDataset`
-2. 从目标 SID 中拆出 3 层标签
-3. 在一个 prompt 边界位置上预测 3 层 token
-4. 优化 `AR loss + 3 个辅助分类 loss`
-
-### 3.7 `consistency` SFT
-
-入口：
-
-- `MiniOneRec-consistency/sft_mv.py`
-
-当前流程是：
-
-1. 构造 SID 视角和 title 视角
-2. 两个视角都预测同一个 next SID
-3. 除了 CE loss，再对齐两个视角的 logits 与 hidden state
-
-### 3.8 RL 与评测
-
-入口：
-
 - `rl.py`
 - `minionerec_trainer.py`
-- `evaluate.py`
-- `LogitProcessor.py`
+- `compare.md`
 
-流程：
+## 与原始基线的关键差异
 
-1. 用受限解码生成合法 SID 候选
-2. 按 reward 计算 advantage
-3. 做 GRPO 更新
-4. 用 constrained decoding 做离线 Top-K 评测
+这一分支最需要注意的地方在于，它并不只是“原始 MiniOneRec + 多头监督”。
 
-## 4. 现有结果概览
+当前实现中，至少存在两处会显著影响可比性的变化：
 
-当前本地正式、可复用的结果主要有 4 个：
+1. 原始 mixed-task SFT 被收窄为单一 `SidSFTDataset`
+2. 三个 level head 当前共享同一个 prompt-boundary hidden state
 
-| 变体 | 仓库 | 样本数 | Exact@1 | HR@10 | NDCG@10 | HR@20 | NDCG@20 |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| baseline_sft | consistency | 4533 | 0.07456 | 0.14472 | 0.10479 | 0.18310 | 0.11440 |
-| mv_sft | consistency | 4533 | 0.06684 | 0.13435 | 0.09539 | 0.16854 | 0.10394 |
-| rl_base | multihead | 4533 | 0.07831 | 0.15442 | 0.11198 | 0.19347 | 0.12180 |
-| rl_aux | multihead | 4533 | 0.07721 | 0.15773 | 0.11233 | 0.18840 | 0.12008 |
+这意味着该分支不仅新增了辅助损失，也改变了基础训练任务和辅助监督的结构位置。
 
-直接结论：
+## 方法解释
 
-- `consistency` 的 `mv_sft` 明显低于 `baseline_sft`
-- `multihead` 的 `rl_aux` 与 `rl_base` 基本打平，没有形成稳定优势
+从训练流程看，`multihead/` 当前的核心逻辑可以概括为：
 
-更详细的层级命中率、pairwise compare、训练日志统计和 run 目录整理，请看 [compare.md](./compare.md)。
+- 使用 `SidSFTDataset` 训练 next SID 生成
+- 从目标 SID 中提取 level-0、level-1、level-2 标签
+- 在 AR loss 之外加入 3 个 level CE loss
+- 再使用 RL 阶段的 reward 设计继续优化
 
-## 5. 为什么现在没有超过原版
+这一路线的出发点是合理的：如果模型能够先学会较粗层级，再学会较细层级，也许能够更稳定地掌握 SID 结构。
 
-当前最可能的原因有 6 个。
+## 当前结果与观察
 
-1. 你改的不只是一个附加模块，而是把原版 SFT 的任务集合改掉了。
-2. `multihead` 的 3 个辅助头共用同一个 hidden state，和真实自回归生成过程不一致。
-3. 辅助 loss 的量级并不小，实际已经和 AR loss 同量级，优化方向会被明显重塑。
-4. 当前最完整的 RL 结果使用的是 `rl.py` 默认配置，不是 `main/rl.sh` 的 `ranking` 配置。
-5. `consistency` 的 full-vocab JS + anchor 表征对齐，可能把两个视角过度压成同一种表示。
-6. SID 本身有碰撞，且 level-0 只用了 48 个 token，层级结构质量还不够好。
+根据当前最可比的一组本地结果：
 
-## 6. 更合理的下一步
+| Variant | Samples | Exact@1 | HR@10 | NDCG@10 | HR@20 | NDCG@20 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `rl_base` | 4533 | 0.07831 | 0.15442 | 0.11198 | 0.19347 | 0.12180 |
+| `rl_aux` | 4533 | 0.07721 | 0.15773 | 0.11233 | 0.18840 | 0.12008 |
 
-如果你下一步是想继续把结果做上去，建议这样改：
+目前可以观察到：
 
-1. 先恢复一个真正和 `main/sft.py` 对齐的 base。
-2. 再在这个 base 上叠加 `multihead` 或 `consistency`。
-3. `multihead` 要把 3 个 level head 挂到 3 个真实的 SID 生成位置上。
-4. 给辅助损失做 warmup 或分阶段打开。
-5. `consistency` 只在 SID 相关 token 上做一致性，不要直接对 full vocab 做 JS。
-6. 所有 RL 实验参数都显式写在脚本里，不要依赖默认值。
-7. 先修 SID 碰撞和 level-0 利用率。
+- 辅助监督版本在 `HR@10` 和 `NDCG@10` 上只有轻微波动
+- 在 `Exact@1`、`HR@20` 和 `NDCG@20` 上没有形成稳定收益
+- 结果更像是对局部样本分布产生了扰动，而不是带来明确整体提升
 
-## 7. 你现在最该看的文件
+## 结果为何尚未超过基线
 
-- [compare.md](./compare.md)
-- `MiniOneRec-multihead/sft.py`
-- `MiniOneRec-multihead/rl.py`
-- `MiniOneRec-multihead/run_all_experiments.sh`
-- `MiniOneRec-consistency/sft_mv.py`
-- `MiniOneRec-consistency/paired_mv_dataset.py`
-- `MiniOneRec-consistency/mv_consistency_trainer.py`
+当前较合理的解释包括：
 
+1. SFT 基座已经变化，不再与原始 mixed-task setup 完全一致
+2. 三层辅助预测共用一个 hidden state，与真实 SID 自回归生成位置不一致
+3. 辅助损失量级足够大时，会明显改写 SFT 阶段的优化目标
+4. 粗层级更正确，并不自动等价于最终 item 排名更高
+
+## 后续改进建议
+
+如果继续推进 `multihead/`，当前更值得优先验证的是：
+
+1. 恢复一个与原始 mixed-task SFT 可严格对齐的 base
+2. 把 3 个 level head 挂到真实 SID 自回归位置，而不是单一共享 hidden state
+3. 让辅助损失逐步 warmup，而不是从训练开始就与 AR loss 等强竞争
+4. 统一在离线 Top-K 指标下比较所有变体
+
+## 运行说明
+
+常用入口包括：
+
+- `sft.sh`
+- `rl.sh`
+- `evaluate.sh`
+
+如果你的目标是先理解这一分支，建议优先阅读：
+
+- `compare.md`
+- `sft.py`
+- `rl.py`
