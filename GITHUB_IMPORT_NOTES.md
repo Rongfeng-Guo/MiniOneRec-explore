@@ -7,7 +7,8 @@ Maintenance date: `2026-06-08`
 | Item | Value |
 | --- | --- |
 | Cleaned repository path | `/home/grf/minionerec_prefix_multihead_repo` |
-| GitHub repository | `git@github.com:Rongfeng-Guo/MiniOneRec-prefix-multihead-code.git` |
+| GitHub repository | `git@github.com:Rongfeng-Guo/MiniOneRec-explore.git` |
+| Previous repository URL | `git@github.com:Rongfeng-Guo/MiniOneRec-prefix-multihead-code.git` |
 | Branch | `main` |
 | Initial import commit | `a9744b1` |
 | Current base before this documentation pass | `385f43c` |
