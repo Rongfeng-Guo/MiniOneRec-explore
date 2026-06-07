@@ -1,5 +1,7 @@
 # MiniOneRec-explore
 
+[![Repo Checks](https://github.com/Rongfeng-Guo/MiniOneRec-explore/actions/workflows/repo-checks.yml/badge.svg)](https://github.com/Rongfeng-Guo/MiniOneRec-explore/actions/workflows/repo-checks.yml)
+
 `MiniOneRec-explore` 是一个围绕 MiniOneRec 展开的研究型代码仓库，用于系统整理 3 条针对 SID 结构增强的实验分支：
 
 - `prefix/`：面向前缀结构的奖励设计
@@ -151,6 +153,19 @@ bash multihead/evaluate.sh
 
 如果复现 `prefix/` 或 `consistency/`，请改用对应目录下的脚本与入口文件。
 
+## 复现检查清单
+
+为了避免把“结构增强路线”误读成严格可比的单变量实验，建议每次新增结果时同步记录：
+
+- 训练分支：`prefix`、`multihead` 或 `consistency`
+- SFT base 是否与原始 MiniOneRec mixed-task setup 完全一致
+- SID 构建方式、层数、codebook size 和 collision 情况
+- 训练样本数、测试样本数、随机种子和 checkpoint 来源
+- 评测协议：constrained decoding、Top-K 指标、候选空间和过滤规则
+- 结果文件路径、运行命令和关键超参
+
+详细模板见 [`docs/reproducibility_checklist.md`](docs/reproducibility_checklist.md)。
+
 ## 后续工作建议
 
 如果后续要把这些方向推进成更扎实的论文级结果，当前更合理的路线包括：
@@ -164,3 +179,7 @@ bash multihead/evaluate.sh
 ## License
 
 请以各分支目录中的 License 文件为准。
+
+## Citation
+
+如果这个仓库对你的生成式推荐或 SID 结构增强实验有帮助，可以引用根目录的 `CITATION.cff`。

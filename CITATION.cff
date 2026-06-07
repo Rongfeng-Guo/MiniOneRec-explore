@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If this repository helps your generative recommendation or SID-structure experiments, please cite it as below."
+title: "MiniOneRec-explore"
+authors:
+  - family-names: "Guo"
+    given-names: "Rongfeng"
+repository-code: "https://github.com/Rongfeng-Guo/MiniOneRec-explore"
+date-released: 2026-06-04
+keywords:
+  - generative recommendation
+  - sequential recommendation
+  - semantic identifiers
+  - MiniOneRec
+  - hierarchical supervision
